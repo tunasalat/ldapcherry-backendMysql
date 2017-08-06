@@ -16,7 +16,6 @@ import copy
 
 cfg = {
     'display_name': 'test',
-    'user_attributes': 'grp1, grp2',
     'backend_user': 'ssoadm',
     'backend_password': '',
     'backend_host': 'localhost',
@@ -28,7 +27,7 @@ def syslog_error(msg='', context='',
     pass
 
 cherrypy.log.error = syslog_error
-attr = ['id', 'user', 'password', 'name', 'mail', 'groups']
+attr = ['user', 'password', 'name', 'mail', 'groups']
 
 pineapple = {
 'user':  'pineapple',
@@ -123,7 +122,6 @@ class TestError(object):
         inv.add_to_groups('pineapple', default_groups)
 
         ret = inv.get_user('pineapple')
-        ret.pop('id')
 
         expected = pineapple
         expected.update({'groups': 'grp1,grp2,grp3'})
@@ -233,7 +231,6 @@ class TestError(object):
         inv.add_user(pineapple)
         inv.set_attrs('pineapple', {'mail': 'mango@mail.org', 'user': 'mango'})
         ret = inv.get_user('mango')
-        ret.pop('id')
         inv.del_user('mango')
         assert ret == expected
 
@@ -255,7 +252,6 @@ class TestError(object):
         inv.add_user(pineapple)
         inv.set_attrs('pineapple', {'password': 'verystrongpassword'})
         ret = inv.get_user('pineapple')
-        ret.pop('id')
         inv.del_user('pineapple')
         assert ret == expected
 

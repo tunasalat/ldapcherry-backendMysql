@@ -85,7 +85,7 @@ class Backend(ldapcherry.backend.Backend):
         if attrs['password']:
             attrs['password'] = hashlib.sha1(attrs['password']).hexdigest()
 
-        query = ("SELECT id  FROM user WHERE user = %s")
+        query = ("SELECT user  FROM user WHERE user = %s")
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
 
@@ -112,7 +112,7 @@ class Backend(ldapcherry.backend.Backend):
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
 
-        query = ("SELECT id  FROM user WHERE user = %s")
+        query = ("SELECT user  FROM user WHERE user = %s")
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
 
@@ -138,7 +138,7 @@ class Backend(ldapcherry.backend.Backend):
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
 
-        query = ("SELECT id  FROM user WHERE user = %s")
+        query = ("SELECT user  FROM user WHERE user = %s")
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
 
@@ -150,8 +150,8 @@ class Backend(ldapcherry.backend.Backend):
         if 'password' in attrs:
             attrs['password'] = hashlib.sha1(attrs['password']).hexdigest()
 
-        query = 'UPDATE user SET {}'.format(', '.join('{}=%s'.format(k) for k in attrs))
-        cursor.execute(query, attrs.values())
+        query = 'UPDATE user SET {} WHERE user = %s'.format(', '.join('{}=%s'.format(k) for k in attrs))
+        cursor.execute(query, attrs.values() + [username])
         mysql_client.commit()
         cursor.close()
         mysql_client.close()
@@ -202,7 +202,6 @@ class Backend(ldapcherry.backend.Backend):
         query = 'SELECT groups FROM user WHERE user = %s'
         cursor.execute(query, [ username ])
         current_groups = cursor.fetchall()
-        groups = cursor.fetchall()[0][0].split(",")
 
         if current_groups[0][0]:
             new_groups = current_groups[0][0].split(",")
