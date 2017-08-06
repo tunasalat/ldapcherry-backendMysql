@@ -1,19 +1,14 @@
 # -*- coding: utf-8 -*-
 # vim:set expandtab tabstop=4 shiftwidth=4:
-#
-# The MIT License (MIT)
-# LdapCherry
-# Copyright (c) 2014 Carpentier Pierre-Francois
 
-# This is a demo backend
+# This is a mysql backend
 
-from sets import Set
 import mysql.connector
+import hashlib
 import ldapcherry.backend
 from ldapcherry.exceptions import UserDoesntExist, \
     GroupDoesntExist, MissingParameter, \
     UserAlreadyExists
-import re
 
 
 class Backend(ldapcherry.backend.Backend):
@@ -44,12 +39,8 @@ class Backend(ldapcherry.backend.Backend):
 
     def _connect(self):
         """Connect to the mysql server"""
-        try:
-            mysql_client = mysql.connector.connect(user=self.backend_user, password=self.backend_password,
-                              host=self.uri, database=self.db)
-        except Exception as e:
-            mysql_client.close()
-            #self._exception_handler(e)
+        mysql_client = mysql.connector.connect(user=self.backend_user, password=self.backend_password,
+                              host=self.backend_uri, database=self.backend_db)
         return mysql_client
 
     def auth(self, username, password):
@@ -63,24 +54,21 @@ class Backend(ldapcherry.backend.Backend):
         """
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        query = ("SELECT password  FROM auth WHERE user = %s")
 
+        query = ("SELECT password  FROM user WHERE user = %s")
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
 
-        if result[0][0] == password:
+        if not result:
+            cursor.close()
+            mysql_client.close()
+            return False
+        if result[0][0] == hashlib.sha1(password).hexdigest():
             cursor.close()
             mysql_client.close()
             return True
         return False
 
-    #def attrs_pretreatment(self, attrs):
-    #    attrs_keys = []
-    #    attrs_values = []
-    #    for a in attrs:
-    #        attrs_keys.append(str(a))
-    #        attrs_values.append(str(attrs[a]))
-    #    return attrs_keys, attrs_values
 
     def add_user(self, attrs):
         """ Add a user to the backend
@@ -93,23 +81,23 @@ class Backend(ldapcherry.backend.Backend):
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
         username = attrs[self.key]
-        query = ("SELECT id  FROM auth WHERE user = %s")
+
+        #secure user password
+        if attrs['password']:
+            attrs['password'] = hashlib.sha1(attrs['password']).hexdigest()
+
+        query = ("SELECT id  FROM user WHERE user = %s")
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
 
-        if result != []:
+        if result:
             cursor.close()
             mysql_client.close()
             raise UserAlreadyExists(attrs[self.key], self.backend_name)
-            return False
-
-        #attrs_keys, attrs_values = self.attrs_pretreatment(attrs)
-        #attrs_keys.append('user')
-        #attrs_values.append(username)
 
         placeholders = ', '.join(['%s'] * len(attrs))
         columns = ', '.join(attrs.keys())
-        sql = "INSERT INTO users ( %s ) VALUES ( %s )" % (columns, placeholders)
+        query = "INSERT INTO user ( %s ) VALUES ( %s )" % (columns, placeholders)
         cursor.execute(query, attrs.values())
         mysql_client.commit()
         cursor.close()
@@ -124,14 +112,21 @@ class Backend(ldapcherry.backend.Backend):
         """
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        try:
-            query = ("DELETE FROM users WHERE user = %s")
-            cursor.execute(query, [ username ])
-            mysql_client.commit()
+
+        query = ("SELECT id  FROM user WHERE user = %s")
+        cursor.execute(query, [ username ])
+        result = cursor.fetchall()
+
+        if not result:
             cursor.close()
             mysql_client.close()
-        except:
             raise UserDoesntExist(username, self.backend_name)
+
+        query = ("DELETE FROM user WHERE user = %s")
+        cursor.execute(query, [ username ])
+        mysql_client.commit()
+        cursor.close()
+        mysql_client.close()
 
     def set_attrs(self, username, attrs):
         """ Set a list of attributes for a given user
@@ -143,7 +138,20 @@ class Backend(ldapcherry.backend.Backend):
         """
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        query = 'UPDATE users SET {}'.format(', '.join('{}=%s'.format(k) for k in attrs))
+
+        query = ("SELECT id  FROM user WHERE user = %s")
+        cursor.execute(query, [ username ])
+        result = cursor.fetchall()
+
+        if not result:
+            cursor.close()
+            mysql_client.close()
+            raise UserDoesntExist(username, self.backend_name)
+
+        if 'password' in attrs:
+            attrs['password'] = hashlib.sha1(attrs['password']).hexdigest()
+
+        query = 'UPDATE user SET {}'.format(', '.join('{}=%s'.format(k) for k in attrs))
         cursor.execute(query, attrs.values())
         mysql_client.commit()
         cursor.close()
@@ -157,18 +165,23 @@ class Backend(ldapcherry.backend.Backend):
         :param groups: list of groups
         :type groups: list of strings
         """
-
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        query = 'SELECT groups FROM users WHERE user = %s'
-        cursor.execute(query, [ username ])
-        groups =  cursor.fetchall()[0][0].split(",")
-        for item in groups:
-            if item not in groups:
-                groups.append(item)
 
-        new_groups = ','.join(map(str, groups)) 
-        query = 'UPDATE users SET groups = %s WHERE user = %s'
+        query = 'SELECT groups FROM user WHERE user = %s'
+        cursor.execute(query, [ username ])
+        current_groups = cursor.fetchall()
+
+        if current_groups[0][0]:
+            new_groups = current_groups[0][0].split(",")
+            for item in groups:
+                if item not in new_groups:
+                    new_groups.append(item)
+            new_groups = ','.join(map(str, new_groups))
+        else:
+            new_groups = ','.join(map(str, groups))
+
+        query = 'UPDATE user SET groups = %s WHERE user = %s'
         cursor.execute(query, [ new_groups, username ])
         mysql_client.commit()
         cursor.close()
@@ -187,15 +200,21 @@ class Backend(ldapcherry.backend.Backend):
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
 
-        query = 'SELECT groups FROM users WHERE user = %s'
+        query = 'SELECT groups FROM user WHERE user = %s'
         cursor.execute(query, [ username ])
-        groups =  cursor.fetchall()[0][0].split(",")
-        for item in groups:
-            if item in groups:
-                groups.remove(item)
+        current_groups = cursor.fetchall()
+        groups = cursor.fetchall()[0][0].split(",")
 
-        new_groups = ','.join(map(str, groups)) 
-        query = 'UPDATE users SET groups = %s WHERE user = %s'
+        if current_groups[0][0]:
+            new_groups = current_groups[0][0].split(",")
+            for item in groups:
+                if item in new_groups:
+                    new_groups.remove(item)
+            new_groups = ','.join(map(str, new_groups))
+        else:
+            new_groups = ''
+
+        query = 'UPDATE user SET groups = %s WHERE user = %s'
         cursor.execute(query, [ new_groups, username ])
         mysql_client.commit()
         cursor.close()
@@ -210,8 +229,8 @@ class Backend(ldapcherry.backend.Backend):
         """
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        ret = {}
-        query = 'SELECT * FROM user WHERE user RLIKE "%s" or mail RLIKE "%s"'
+
+        query = 'SELECT * FROM user WHERE user RLIKE %s or mail RLIKE %s'
         cursor.execute(query, [ searchstring, searchstring])
 
         result = cursor.fetchall()
@@ -223,7 +242,6 @@ class Backend(ldapcherry.backend.Backend):
 
         cursor.close()
         mysql_client.close()
-
         return ret
 
     def get_user(self, username):
@@ -237,25 +255,24 @@ class Backend(ldapcherry.backend.Backend):
         """
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        query = 'SELECT * FROM user WHERE user = "%s"'
 
+        query = 'SELECT * FROM user WHERE user = %s'
         cursor.execute(query, [ username ])
         result = cursor.fetchall()
+
+        if not result:
+            cursor.close()
+            mysql_client.close()
+            raise UserDoesntExist(username, self.backend_name)
+
         cols = cursor.column_names
-
-        ret = {}
-
-        ret = dict(zip(cols, result[i]))
+        ret = dict(zip(cols, result[0]))
 
         cursor.close()
         mysql_client.close()
 
         return ret
 
-        #try:
-        #    return self.users[username]
-        #except:
-        #    raise UserDoesntExist(username, self.backend_name)
 
     def get_groups(self, username):
         """ Get a user's groups
@@ -267,18 +284,17 @@ class Backend(ldapcherry.backend.Backend):
 
         mysql_client = self._connect()
         cursor = mysql_client.cursor()
-        query = 'SELECT groups FROM user WHERE user = "%s"'
-
+        query = 'SELECT groups FROM user WHERE user = %s'
         cursor.execute(query, [ username ])
-        groups =  cursor.fetchall()[0][0].split(",")
+        groups = cursor.fetchall()
+
+
+        if groups:
+            groups =  groups[0][0].split(",")
+        else:
+            groups = []
 
         cursor.close()
         mysql_client.close()
 
         return groups
-
-
-        #try:
-        #    return self.users[username]['groups']
-        #except:
-        #    raise UserDoesntExist(username, self.backend_name)
