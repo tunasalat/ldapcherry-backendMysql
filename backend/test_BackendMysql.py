@@ -19,7 +19,7 @@ cfg = {
     'user_attributes': 'grp1, grp2',
     'backend_user': 'ssoadm',
     'backend_password': '',
-    'backend_uri': 'localhost',
+    'backend_host': 'localhost',
     'backend_db': 'sso_test',
 }
 

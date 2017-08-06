@@ -30,17 +30,16 @@ class Backend(ldapcherry.backend.Backend):
         self.config = config
         self._logger = logger
         self.backend_name = name
-        self.user_attributes = self.get_param('user_attributes')
         self.backend_user = self.get_param('backend_user')
         self.backend_password = self.get_param('backend_password')
-        self.backend_uri = self.get_param('backend_uri')
+        self.backend_host = self.get_param('backend_host')
         self.backend_db = self.get_param('backend_db')
         self.key = key
 
     def _connect(self):
         """Connect to the mysql server"""
         mysql_client = mysql.connector.connect(user=self.backend_user, password=self.backend_password,
-                              host=self.backend_uri, database=self.backend_db)
+                              host=self.backend_host, database=self.backend_db)
         return mysql_client
 
     def auth(self, username, password):
